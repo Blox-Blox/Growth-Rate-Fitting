@@ -38,8 +38,7 @@ function [gest,gstd] = fitGRusingWeightedMeanOfFits(OD,dt,varargin)
 %                   all possible time windows, growth rates fits which
 %                   correspond to growth by less than a set factor are
 %                   excluded. The default value is a factor of 4. Can be
-%                   set to 1 to only exclude fits with negative slope or to
-%                   0 to not exclude any fits.
+%                   set to 0 or 1 to only exclude fits with negative slope.
 %   'MinUsedOD': scalar double. This code excludes all data before the
 %                optical density is permanently at or above some minimum
 %                threshold below which all data is assume to be noise. The
@@ -77,6 +76,12 @@ function [gest,gstd] = fitGRusingWeightedMeanOfFits(OD,dt,varargin)
 % 
 % Copyright 2023 Blox Bloxham
 
+
+
+
+% % % % % % % % % % % % % % % % % % % % % %
+% %             Parse Input             % %
+% % % % % % % % % % % % % % % % % % % % % %
 
 % Default values 
 DontSubtractBG = false;
@@ -183,30 +188,58 @@ while i <= length(varargin)
 end
 
 
+
+
+% % % % % % % % % % % % % % % % % % % % % % % % % % %
+% %    Few small things before getting going...   % %
+% % % % % % % % % % % % % % % % % % % % % % % % % % %
+
+% Reshape OD if necessary 
+if ~isvector(OD)
+    error('OD (first input) must be a vector!')
+else
+    OD = squeeze(OD);
+end
+
+% Background subtraction
 if ~DontSubtractBG
     OD = OD - min(OD);
 end
 
+% Create ts vector from dt
+if ~isscalar(dt)
+    error('dt (second input) must be a scalar!')
+end
 ts = (0:(length(OD)-1))*dt;
-
 
 % Convert MinFitLength from hours to timepoints
 MinFitLength = max(round(MinFitLength/dt),2);
 
+% Total number of timepoints
 N = size(OD,1);
 
-B = nan(2,N,N);
-SS = nan(N);
-R2 = nan(N);
 
-for startInd = (find(OD <= min(MinUsedOD,max(OD)/max(10,2*ExcludedEndFactor*MinFitFactor)),1,'last')+1):(N - 2)
+
+
+% % % % % % % % % % % % % % % % % % % % % % % % % % % % % %
+% %    Calculating GR fits from all possible windows    % %
+% % % % % % % % % % % % % % % % % % % % % % % % % % % % % %
+
+B = nan(2,N,N); % Slopes and intercepts
+SS = nan(N,N); % Sum-of-squares residuals
+R2 = nan(N,N); % R^2 values
+
+for startInd = (find(OD <= min(MinUsedOD,...
+        max(OD)/max(10,2*ExcludedEndFactor*MinFitFactor)),1,'last')+1):(N - 2)
+    
     for endInd = (startInd + MinFitLength):find(...
-            medfilt1(OD,round(1/dt+1)) > max(OD)/ExcludedEndFactor,1)%N
+            medfilt1(OD,round(1/dt+1)) > max(OD)/ExcludedEndFactor,1)
+        
         % Calculate linear least-squares best fit using:
         %   B = (X' * W * X)^-1 * X' * W * Y
-        %   where X = [ones(:,1),t];
-        %   where W = diagonal matrix of OD^2 (propto 1/sigma ~1/(dlogOD/dt)^2)
-        %   and where Y = log(OD)
+        %   where X = [ones(:,1),t],
+        %   W = diagonal matrix of OD^2 (i.e. 1/sigma ~ 1/(dlogOD/dt)^2),
+        %   and Y = log(OD)
         B(:,startInd,endInd) = ...
             ([ones(endInd-startInd+1,1),((startInd:endInd)'-1)*dt]' * ...   % (X'*
             (eye(endInd-startInd+1) .* OD(startInd:endInd).^2) * ...        %  W *
@@ -220,21 +253,38 @@ for startInd = (find(OD <= min(MinUsedOD,max(OD)/max(10,2*ExcludedEndFactor*MinF
             exp( B(1,startInd,endInd) + B(2,startInd,endInd)*((startInd:endInd)'-1)*dt)).^2 );
         R2(startInd,endInd) = 1 - SS(startInd,endInd) ./ ...
             sum((OD(startInd:endInd) - mean(OD(startInd:endInd))).^2);
+        
     end
 end
 
 
 
-ws_all = reshape(1./(1-R2),[],1);
-gs_all = reshape(B(2,:,:),[],1);
-keep = ~isnan(ws_all) & ~isnan(gs_all) & gs_all > 0 & ...
-    reshape(squeeze(B(2,:,:)) .* (ts - ts') > log(MinFitFactor),[],1);
+
+% % % % % % % % % % % % % % % % % % % % % %
+% %       Calculate gest and gstd       % %
+% % % % % % % % % % % % % % % % % % % % % %
+
+ws_all = reshape(1./(1-R2),[],1); % Weights to be used for averaging all fits
+gs_all = reshape(B(2,:,:),[],1); % Just the slope of the fits
+
+% Exclude some fits from the average:
+keep = ~isnan(ws_all) & ~isnan(gs_all) & ... % NaN's coming from certain edge cases
+    gs_all > 0 & ... % Exclude fits with negative slopes
+    reshape(squeeze(B(2,:,:)) .* (ts - ts') > log(MinFitFactor),[],1); % MinFitFactor constraint
+
 ws = ws_all(keep);
 gs = gs_all(keep);
 
+% Calculate the weighted average and standard deviation of all possible fits
 gest = sum(ws.*gs)/sum(ws);
 gstd = std(gs,ws);
 
+
+
+
+% % % % % % % % % % % % % % % % % % % % % % % % % %
+% %     Detect and handle no-growth cases       % %
+% % % % % % % % % % % % % % % % % % % % % % % % % %
 
 if sum(keep) == 1
     keep = ~isnan(ws_all) & ~isnan(gs_all) & gs_all > 0 & ...
@@ -244,11 +294,10 @@ if sum(keep) == 1
 
     gest = sum(ws.*gs)/sum(ws);
     gstd = 2*std(gs,ws);
-
     
 elseif isnan(gest)
     keep = ~isnan(ws_all) & ~isnan(gs_all) & gs_all > 0 & ...
-    reshape(squeeze(B(2,:,:)) .* (ts - ts') > log(MinFitFactor/2),[],1);
+        reshape(squeeze(B(2,:,:)) .* (ts - ts') > log(MinFitFactor/2),[],1);
     ws = ws_all(keep);
     gs = gs_all(keep);
 
@@ -272,6 +321,14 @@ if max(medfilt1(OD,round(1/dt+1))) < NoGrowthThreshold || isnan(gest)
     end
 end
 
+
+
+
+% % % % % % % % % % % % % % % % % % % % % % % %
+% %     Make Summary Figure if Desired      % %
+% % % % % % % % % % % % % % % % % % % % % % % %
+
+% Use 'MakeFigure',true name-value pair to run this section
 
 if MakeFigure
     
@@ -364,6 +421,11 @@ if MakeFigure
     set(gca,'FontSize',16)
 end
 
+
+
+% % % % % % % % % % %
+% %     Yee!      % %
+% % % % % % % % % % %
+
 end
 
-%out = [nargin,length(varargin)];
