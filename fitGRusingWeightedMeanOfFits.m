@@ -1,12 +1,79 @@
 function [gest,gstd] = fitGRusingWeightedMeanOfFits(OD,dt,varargin)
-% Required inputs:
-%   OD: Optical density as a function of time (or other pop-size proxy)
-%   dt: timestep (code assumes constant/equal timestep spacing!)
 % 
-% Optional Name-Value Inputs
-%   'DontSubtractBG': logical. default false
-%   'MakeFigure': logical. default false. Note: overwrites current figure!
-%   'TitleString': string. 
+% 
+% Required Inputs:
+%   OD: vector double, optical density as a function of time (or other 
+%       linear pop-size proxy)
+%   dt: scalar double, timestep
+%       This code assumes constant measurement spacing!!
+%       This code is written assuming units of hours. You should be able to
+%       adjust it to work 
+%       
+% Outputs:
+%   gest: scalar double, estimated growth rate, same units as dt
+%   gstd: scalar double, uncertainty on that estimate, same units as dt
+%
+% Optional Name-Value Inputs:
+%   *NOTE: Planned update to the default values in the near future!*
+%   'DontSubtractBG': logical. default false.
+%                     if false the line 'OD = OD - min(OD);' is executed
+%                     if true that line is not, so set to true if you
+%                     prefer an alternative means of background subtraction
+%   'MakeFigure': logical. default false. set to true if you want a figure
+%                 summarizing the fit to be made
+%                 Note: overwrites current figure!!
+%   'TitleString': string or character array. adds additional text to the
+%                  title of the figure.
+%   'MinFitLength': scalar double. This code considers all possible time
+%                   windows over which a growth rate could be fit, but has
+%                   a minimum time window length. The default value is 3.
+%                   This is in the same units as dt, assumed to be hours.
+%                   This is done so that (i) noise over the scale of a few
+%                   measurements doesn't unnecessarily increase the
+%                   uncertainty on the fit and (ii) a couple measurements
+%                   happening to perfectly fit the exponential growth model
+%                   don't show up as an infinitely better fit than anything
+%                   else. Not recommended to go below 3*dt due to (ii).
+%   'MinFitFactor': scalar double. Likewise, after fitting growth rates to
+%                   all possible time windows, growth rates fits which
+%                   correspond to growth by less than a set factor are
+%                   excluded. The default value is a factor of 4. Can be
+%                   set to 1 to only exclude fits with negative slope or to
+%                   0 to not exclude any fits.
+%   'MinUsedOD': scalar double. This code excludes all data before the
+%                optical density is permanently at or above some minimum
+%                threshold below which all data is assume to be noise. The
+%                default value is 5e-3. Can be set to 0, but better to use
+%                min(OD(OD > 0)) to at least exclude population sizes of 0.
+%   'ExcludedEndFactor': scalar double. This code excludes all data after
+%                        the OD first reaches within a set factor of its
+%                        maximum value. This is to (i) exclude everything
+%                        happening after saturation, including slow
+%                        residual growth and (ii) exclude any secondary
+%                        growth phases. The default value is a factor of 2.
+%                        Increase if data is expected to have diauxic
+%                        shifts and you want to fit the growth rate to the
+%                        initial exponential phase. Must be set to
+%                        something greater than (NOT equal to) 1.
+%   'NoGrowthThreshold': scalar double. Considers there to be no growth if
+%                        the OD never crosses this threshold. Default value
+%                        1e-2. Can be set to 0, but note that there are
+%                        other conditions under which the code will
+%                        consider there to be no growth, for example if
+%                        very slow growth mean none of the fits satisfy the
+%                        MinFitFactor or MinUsedOD requirement.
+%
+% Example usage:
+%     dt = 10/60;
+%     tmax = 24;
+%     g = 0.6;
+%     n0 = 1e-4;
+%     nmax = 0.5;
+%     noise = 5e-3;
+%     n_t = min(n0*exp(g*(0:dt:tmax))',nmax);
+%     noise_t = noise*randn(size(n_t));
+%     OD_t = max(n_t + noise_t,0);
+%     [gest,gstd] = fitGRusingWeightedMeanOfFits(OD_t,dt,'MakeFigure');
 % 
 % Copyright 2023 Blox Bloxham
 
