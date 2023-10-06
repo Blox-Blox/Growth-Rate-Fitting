@@ -87,11 +87,11 @@ function [gest,gstd] = fitGRusingWeightedMeanOfFits(OD,dt,varargin)
 DontSubtractBG = false;
 MakeFigure = false;
 TitleString = "";
-MinFitLength = 3;
+MinFitLength = 2; % old value: 3;
 MinFitFactor = 4;
-MinUsedOD = 5e-3;
-ExcludedEndFactor = 2;
-NoGrowthThreshold = 1e-2;
+MinUsedOD = 1e-2; % old value: 5e-3;
+ExcludedEndFactor = 3; % old value: 2;
+NoGrowthThreshold = 5e-2; % old value: 1e-2;
 
 i = 1;
 while i <= length(varargin)
