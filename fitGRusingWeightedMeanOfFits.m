@@ -1,9 +1,30 @@
 function [gest,gstd] = fitGRusingWeightedMeanOfFits(OD,dt,varargin)
+% This function fits exponential growth rates to optical density data or
+% other measures linearly proportional to population size.  It assumes that
+% the data has strength of time during when there is exponential growth (to
+% which a growth rate should be fit) and when there is not.  It determines
+% how likely a period of time is to be the exponential growth to which a
+% growth rate should be fit based on how much of the variance in the data
+% over that window is explained by an exponential growth model.  It then
+% does not simply choose the best time period but instead performs a 
+% weighted average over the growth rates from all possible time windows.
+%
+% The specific metric of the likelihood of a period of time being the
+% exponential growth to which a growth rate should be fit is:
+%    1/(1-R2) == (variance of data in period)/(sum of square residuals)
+%    where R2 is the weighted R-squared value for a linear fit through the
+%    log-transform data over the time period (weighted by 1/OD^2 i.e.
+%    (dlog(OD)/dt)^2, the result of propagating on constant uncert. on OD)
 % 
+% ****TODO: Weights should come from the OD *BEFORE* the background
+% subtraction!  And maybe also include the uncertain on the background??
+% 
+% Averaging over all possible fits also allows a relevant uncertainty on
+% the growth rate to be calculated as the weighted 
 % 
 % Required Inputs:
 %   OD: vector double, optical density as a function of time (or other 
-%       linear pop-size proxy)
+%       linear pop-size proxy)  *Do NOT log-scale before passing as input*
 %   dt: scalar double, timestep
 %       This code assumes constant measurement spacing!!
 %       This code is written assuming units of hours. You should be able to
@@ -20,7 +41,7 @@ function [gest,gstd] = fitGRusingWeightedMeanOfFits(OD,dt,varargin)
 %                     if true that line is not, so set to true if you
 %                     prefer an alternative means of background subtraction
 %   'MakeFigure': logical. default false. set to true if you want a figure
-%                 summarizing the fit to be made
+%                 summarizing the fit to be made.
 %                 Note: overwrites current figure!!
 %   'TitleString': string or character array. adds additional text to the
 %                  title of the figure.
@@ -61,6 +82,23 @@ function [gest,gstd] = fitGRusingWeightedMeanOfFits(OD,dt,varargin)
 %                        consider there to be no growth, for example if
 %                        very slow growth mean none of the fits satisfy the
 %                        MinFitFactor or MinUsedOD requirement.
+%
+% log(OD)
+%  |                          (max)___________
+%  |                         ____/  |         \_____ 
+%  |                    ____/       |               
+%  |                   / _  _  _  _ |                   
+%  |                  /    'ExcludedEndFactor'  
+%  |                 /     (Factor below max value)
+%  | (exp growth)   /
+%  |               /
+%  |              /
+%  |             / - - - - - 'MinUsedOD' (set OD value) - - - - -
+%  | (noise) _  /
+%  | _     _/ \/ - - - 'NoGrowthThreshold' (set OD value) - - - -
+%  |/ \/\_/            (code has special handle of no-growth cases)
+%  |_______________________________________________________________time
+%
 %
 % Example usage:
 %     dt = 10/60;
